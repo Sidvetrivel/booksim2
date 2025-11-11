@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
-"""
-Simplified NoC topology generation and testing for BookSim.
 
-Usage:
-    python3 booksim_runner.py --type arb --routers 8
-    python3 booksim_runner.py --type mesh --width 4 --height 4
-    python3 booksim_runner.py --type pseudo --clusters 3 --cluster-type mesh
-"""
+# Simplified NoC topology generation and testing for BookSim.
 
 import random
 import sys
@@ -358,14 +352,15 @@ class BookSimRunner:
 
     def generate_config(self, topology_file):
         config_template = f"""topology = anynet;
-    routing_function = min;
+    routing_function = spanning_tree;
     network_file = {os.path.abspath(topology_file)};
     traffic = uniform;
 
     use_read_write = 0;
 
-    sample_period = 10000;
+    sample_period = 200000;
     injection_rate = 0.1;
+    latency_thres = 1000.0;
 
     vc_allocator = separable_input_first;
     sw_allocator = separable_input_first;
@@ -410,23 +405,20 @@ class BookSimRunner:
 
 def main():
     parser = argparse.ArgumentParser(description='BookSim Topology Generator & Runner')
-    
-    # Topology type
+
+
+    #General Topology Options
     parser.add_argument('--type', choices=['arb', 'mesh', 'torus', 'pseudo'],
                        required=True, help='Topology type')
-    
-    # Common options
+    parser.add_argument('--routing', default='spanning_tree_anynet',
+                       help='Routing algorithm')
     parser.add_argument('--nodes-per-router', type=int, default=1 ,
                        help='Terminal nodes per router')
-    parser.add_argument('--booksim', default='./booksim',
-                       help='Path to BookSim executable')
-    parser.add_argument('--output', default='../sim',
-                       help='Base output directory')
     
     # Arbitrary topology options
     parser.add_argument('--routers', type=int, default=8,
                        help='Number of routers (arbitrary topology)')
-    parser.add_argument('--connectivity', type=float, default=0.4,
+    parser.add_argument('--connectivity', type=float, default=0.5,
                        help='Connection probability (arbitrary topology)')
     parser.add_argument('--seed', type=int, default=42,
                        help='Random seed')
@@ -448,11 +440,9 @@ def main():
                        help='Inter-cluster links (pseudo)')
     
     # Simulation options
-    parser.add_argument('--routing', default='min',
-                       help='Routing algorithm')
     parser.add_argument('--traffic', default='uniform',
                        help='Traffic pattern')
-    parser.add_argument('--rate', type=float, default=0.1,
+    parser.add_argument('--rate', type=float, default=1.0,
                        help='Injection rate')
     parser.add_argument('--num-vcs', type=int, default=1,
                        help='Number of virtual channels')
@@ -464,8 +454,8 @@ def main():
     args = parser.parse_args()
     
     # Create timestamped output directory
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    run_dir = Path(args.output) / f"run_{args.type}_{timestamp}"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = Path('../sim') / f"run_{args.type}_{timestamp}"
     run_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"\n{'='*70}")
@@ -514,7 +504,7 @@ def main():
         
         output_file = run_dir / f"{topo_name}_{args.routing}_{args.traffic}_{args.rate}_out"
         
-        runner = BookSimRunner(args.booksim)
+        runner = BookSimRunner('./booksim')
         metrics = runner.run(
             str(topology_file),
             str(output_file)
