@@ -33,6 +33,13 @@
 #include "config_utils.hpp"
 #include "stats.hpp"
 #include "trafficmanager.hpp"
+#include "netrace.h"
+
+//Include netrace
+extern "C" {
+  #include "netrace/netrace.h"
+}
+
 
 class BatchTrafficManager : public TrafficManager {
 
