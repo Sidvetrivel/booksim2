@@ -180,7 +180,7 @@ TrafficPattern * TrafficPattern::New(string const & pattern, int nodes,
     vector<int> hotspots = tokenize_int(params[0]);
     for(size_t i = 0; i < hotspots.size(); ++i) {
       if(hotspots[i] < 0) {
-	hotspots[i] = RandomInt(nodes - 1);
+	      hotspots[i] = RandomInt(nodes - 1);
       }
     }
     vector<int> rates;
@@ -191,11 +191,32 @@ TrafficPattern * TrafficPattern::New(string const & pattern, int nodes,
       rates.resize(hotspots.size(), 1);
     }
     result = new HotSpotTrafficPattern(nodes, hotspots, rates);
-  } else {
+  } 
+  else if (pattern_name == "netrace"){
+    cout << "Netrace Traffic Pattern Selected " << pattern << endl;
+    // Return a lightweight placeholder so callers that expect a valid
+    // TrafficPattern pointer won't dereference a null. BatchTrafficManager
+    // will handle actual trace-driven injection.
+    result = new NetTraceTrafficPattern(nodes);
+  }
+  else {
     cout << "Error: Unknown traffic pattern: " << pattern << endl;
     exit(-1);
   }
   return result;
+}
+
+NetTraceTrafficPattern::NetTraceTrafficPattern(int nodes)
+  : TrafficPattern(nodes)
+{
+}
+
+int NetTraceTrafficPattern::dest(int source)
+{
+  assert((source >= 0) && (source < _nodes));
+  // For NetTrace the destination is provided by the trace; return the
+  // source as a safe placeholder in case this is accidentally used.
+  return source;
 }
 
 PermutationTrafficPattern::PermutationTrafficPattern(int nodes)

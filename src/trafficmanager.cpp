@@ -921,6 +921,67 @@ void TrafficManager::_GeneratePacket( int source, int stype,
 
 void TrafficManager::_Inject(){
 
+    #ifdef USE_NETRACE
+        // Check if we're using NetTrace with BatchTrafficManager
+        BatchTrafficManager* btm = dynamic_cast<BatchTrafficManager*>(this);
+        if(btm && btm->_use_netrace) {
+            // Read packets from NetTrace for current cycle
+            nt_packet_t* pkt;
+            while((pkt = nt_read_packet(btm->_trace_ctx)) != NULL) {
+                // Check if packet is for current cycle
+                if(pkt->cycle > (unsigned long long)_time) {
+                    // Packet not ready yet
+                    // NOTE: This shouldn't happen with sorted traces
+                    cerr << "WARNING: Packet cycle " << pkt->cycle 
+                        << " > current time " << _time << endl;
+                    break;
+                }
+                
+                if(pkt->cycle < (unsigned long long)_time) {
+                    // Old packet, skip it
+                    nt_clear_dependencies_free_packet(btm->_trace_ctx, pkt);
+                    continue;
+                }
+                
+                // Packet ready for current cycle
+                int source = pkt->src;
+                int dest = pkt->dst;
+                int cl = 0;  // Use class 0
+                
+                // Validate node IDs
+                if(source < 0 || source >= _nodes) {
+                    cerr << "ERROR: Invalid source " << source << " in trace" << endl;
+                    nt_clear_dependencies_free_packet(btm->_trace_ctx, pkt);
+                    continue;
+                }
+                if(dest < 0 || dest >= _nodes) {
+                    cerr << "ERROR: Invalid dest " << dest << " in trace" << endl;
+                    nt_clear_dependencies_free_packet(btm->_trace_ctx, pkt);
+                    continue;
+                }
+                
+                // Generate packet if source queue is empty
+                if(_partial_packets[source][cl].empty()) {
+                    _GeneratePacket(source, 1, cl, _time);
+                    
+                    // Override destination with trace destination
+                    for(list<Flit*>::iterator it = _partial_packets[source][cl].begin();
+                        it != _partial_packets[source][cl].end(); ++it) {
+                        if((*it)->head) {
+                            (*it)->dest = dest;
+                        }
+                    }
+                }
+                
+                // Free NetTrace packet
+                nt_clear_dependencies_free_packet(btm->_trace_ctx, pkt);
+            }
+            
+            return; // Skip normal injection for NetTrace mode
+        }
+
+    #endif
+
     for ( int input = 0; input < _nodes; ++input ) {
         for ( int c = 0; c < _classes; ++c ) {
             // Potentially generate packets for any (input,class)
@@ -1637,15 +1698,31 @@ bool TrafficManager::Run( )
   
         _ClearStats( );
 
+        cout << "BP2" << endl;
+
+           cout << "DEBUG: _classes=" << _classes \
+               << " _traffic_pattern.size=" << _traffic_pattern.size() \
+               << " _injection_process.size=" << _injection_process.size() << endl;
+           if(_traffic_pattern.size() > 0) {
+              cout << "DEBUG: _traffic_pattern[0]=" << _traffic_pattern[0]
+                  << " _injection_process[0]=" << _injection_process[0] << endl;
+           }
+
         for(int c = 0; c < _classes; ++c) {
             _traffic_pattern[c]->reset();
+            cout << "BP2.1" << endl;
             _injection_process[c]->reset();
+            cout << "BP2.2" << endl;
         }
+
+        cout << "BP3" << endl;
 
         if ( !_SingleSim( ) ) {
             cout << "Simulation unstable, ending ..." << endl;
             return false;
         }
+
+        cout << "BP4" << endl;
 
         // Empty any remaining packets
         cout << "Draining remaining packets ..." << endl;

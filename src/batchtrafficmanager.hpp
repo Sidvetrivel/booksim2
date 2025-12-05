@@ -40,7 +40,6 @@ extern "C" {
   #include "netrace/netrace.h"
 }
 
-
 class BatchTrafficManager : public TrafficManager {
 
 protected:
@@ -72,6 +71,13 @@ public:
 
   BatchTrafficManager( const Configuration &config, const vector<Network *> & net );
   virtual ~BatchTrafficManager( );
+
+  #ifdef USE_NETRACE
+    nt_context_t* _trace_ctx;
+    nt_header_t* _trace_header;
+    string _trace_file;
+    bool _use_netrace;
+  #endif
 
   virtual void WriteStats( ostream & os = cout ) const;
   virtual void DisplayStats( ostream & os = cout ) const;

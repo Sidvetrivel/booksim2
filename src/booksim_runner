@@ -333,9 +333,9 @@ class BookSimRunner:
                 [self.booksim_path, config_file],
                 capture_output=True,
                 text=True,
-                timeout=300
+                timeout=3000
             )
-            output = result.stdout
+            output = result.stdout + result.stderr
             
             if output_file:
                 with open(output_file, 'w') as f:
@@ -354,13 +354,15 @@ class BookSimRunner:
         config_template = f"""topology = anynet;
     routing_function = spanning_tree;
     network_file = {os.path.abspath(topology_file)};
-    traffic = uniform;
+    traffic = netrace;
+    netrace_file = ../src/netrace/testraces/shrtex.tra.bz2;
 
     use_read_write = 0;
 
-    sample_period = 200000;
-    injection_rate = 0.1;
-    latency_thres = 1000.0;
+    // Simulation - BATCH for traces
+    sim_type = batch;
+    batch_size = 1000;  // Will be overridden
+    batch_count = 1;
 
     vc_allocator = separable_input_first;
     sw_allocator = separable_input_first;
@@ -368,6 +370,9 @@ class BookSimRunner:
 
     num_vcs = 1;
     vc_buf_size = 3;
+
+    use_read_write = 0;
+    packet_size = 1;
     """
         
         config_file = Path(topology_file).with_name(f"{Path(topology_file).stem}_config")
@@ -440,9 +445,9 @@ def main():
                        help='Inter-cluster links (pseudo)')
     
     # Simulation options
-    parser.add_argument('--traffic', default='uniform',
+    parser.add_argument('--traffic', default='netrace',
                        help='Traffic pattern')
-    parser.add_argument('--rate', type=float, default=1.0,
+    parser.add_argument('--rate', type=float, default=0.01,
                        help='Injection rate')
     parser.add_argument('--num-vcs', type=int, default=1,
                        help='Number of virtual channels')

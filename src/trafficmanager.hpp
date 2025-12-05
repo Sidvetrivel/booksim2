@@ -44,6 +44,11 @@
 #include "outputset.hpp"
 #include "injection.hpp"
 
+//Include netrace
+extern "C" {
+  #include "netrace/netrace.h"
+}
+
 //register the requests to a node
 class PacketReplyInfo;
 
