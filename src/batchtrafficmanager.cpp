@@ -59,6 +59,8 @@ BatchTrafficManager::BatchTrafficManager( const Configuration &config,
     _use_netrace = false;
     _trace_ctx = NULL;
     _trace_header = NULL;
+    _netrace_next_dest = -1;
+    _netrace_eof = false;
     
     string traffic = config.GetStr("traffic");
     if(traffic == "netrace") {
@@ -74,19 +76,25 @@ BatchTrafficManager::BatchTrafficManager( const Configuration &config,
       _trace_ctx = (nt_context_t*)calloc(1, sizeof(nt_context_t));
       nt_open_trfile(_trace_ctx, _trace_file.c_str());
       
-      // Get header using API function
       _trace_header = nt_get_trheader(_trace_ctx);
       
       if(_trace_header == NULL) {
         Error("Failed to read NetTrace header");
       }
       
+      //Disable dependencies for network simulation
       nt_disable_dependencies(_trace_ctx);
       
       cout << "NetTrace initialized:" << endl;
       cout << "  Nodes: " << (int)_trace_header->num_nodes << endl;
       cout << "  Packets: " << _trace_header->num_packets << endl;
       cout << "  Cycles: " << _trace_header->num_cycles << endl;
+      cout << "  Regions: " << _trace_header->num_regions << endl;
+      
+      if(_trace_header->num_regions > 0) {
+        cout << "Seeking to first region..." << endl;
+        nt_seek_region(_trace_ctx, &_trace_header->regions[0]);
+      }
       
       if((int)_trace_header->num_nodes != _nodes) {
         ostringstream err;
@@ -109,6 +117,7 @@ BatchTrafficManager::~BatchTrafficManager( )
   delete _batch_time;
   if(_sent_packets_out) delete _sent_packets_out;
 
+  //extra netrace cleanup
   #ifdef USE_NETRACE
     if(_use_netrace && _trace_ctx) {
       nt_close_trfile(_trace_ctx);

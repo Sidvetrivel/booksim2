@@ -319,8 +319,20 @@ class PseudoArbitraryTopologyGenerator:
 class BookSimRunner:
     """Run BookSim and parse results."""
     
-    def __init__(self, booksim_path="./booksim"):
+    def __init__(self, booksim_path, routing, traffic, rate, num_vcs, vc_buf_size, netrace_file, sim_type=None):
         self.booksim_path = booksim_path
+        self.routing = routing
+        self.traffic = traffic
+        self.rate = rate
+        self.num_vcs = num_vcs
+        self.vc_buf_size = vc_buf_size
+        self.ntfile = netrace_file
+        
+        # Auto-select sim_type if not provided
+        if sim_type is None:
+            self.sim_type = 'batch' if traffic == 'netrace' else 'latency'
+        else:
+            self.sim_type = sim_type
     
     def run(self, topology_file, output_file):
         """Run BookSim simulation with existing config file."""
@@ -333,7 +345,7 @@ class BookSimRunner:
                 [self.booksim_path, config_file],
                 capture_output=True,
                 text=True,
-                timeout=3000
+                timeout=5000
             )
             output = result.stdout + result.stderr
             
@@ -342,34 +354,63 @@ class BookSimRunner:
                     f.write(output)
             
             return self.parse_results(output)
-        
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as e:
+            # Write any partial output so the user can inspect logs
             print("  ERROR: Simulation timed out")
-            return None
+            partial_out = ''
+            try:
+                partial_out = (e.stdout or '') + (e.stderr or '')
+            except Exception:
+                partial_out = ''
+            if output_file:
+                try:
+                    with open(output_file, 'w') as f:
+                        f.write(partial_out)
+                except Exception as ex:
+                    print(f"  WARNING: failed to write partial output: {ex}")
+            # Return whatever metrics we can parse from partial output
+            return self.parse_results(partial_out)
         except Exception as e:
             print(f"  ERROR: {e}")
             return None
 
     def generate_config(self, topology_file):
+        # Generate sim_config based on sim_type
+        if self.sim_type == 'batch':
+            sim_config = """// Simulation - BATCH mode for fixed batch of packets
+    sim_type = batch;
+    batch_size = 1000;  // Will be overridden by trace if using NetTrace
+    batch_count = 1;"""
+        elif self.sim_type == 'throughput':
+            sim_config = """// Simulation - THROUGHPUT mode for measuring saturation
+    sim_type = throughput;
+    sample_period = 10000;
+    warmup_periods = 3;
+    max_samples = 100;"""
+        else:  # latency (default for synthetic traffic)
+            sim_config = """// Simulation - LATENCY mode for measuring packet latency
+    sim_type = latency;
+    sample_period = 10000;
+    warmup_periods = 3;
+    max_samples = 100;"""
+
         config_template = f"""topology = anynet;
-    routing_function = spanning_tree;
+    routing_function = {self.routing};
     network_file = {os.path.abspath(topology_file)};
-    traffic = netrace;
-    netrace_file = ../src/netrace/testraces/shrtex.tra.bz2;
+    traffic = {self.traffic};
+    netrace_file = {self.ntfile};
 
     use_read_write = 0;
 
-    // Simulation - BATCH for traces
-    sim_type = batch;
-    batch_size = 1000;  // Will be overridden
-    batch_count = 1;
+    {sim_config}
+    injection_rate = {self.rate};
 
     vc_allocator = separable_input_first;
     sw_allocator = separable_input_first;
     alloc_iters = 1;
 
-    num_vcs = 1;
-    vc_buf_size = 3;
+    num_vcs = {self.num_vcs};
+    vc_buf_size = {self.vc_buf_size};
 
     use_read_write = 0;
     packet_size = 1;
@@ -415,7 +456,7 @@ def main():
     #General Topology Options
     parser.add_argument('--type', choices=['arb', 'mesh', 'torus', 'pseudo'],
                        required=True, help='Topology type')
-    parser.add_argument('--routing', default='spanning_tree_anynet',
+    parser.add_argument('--routing', default='spanning_tree',
                        help='Routing algorithm')
     parser.add_argument('--nodes-per-router', type=int, default=1 ,
                        help='Terminal nodes per router')
@@ -425,8 +466,8 @@ def main():
                        help='Number of routers (arbitrary topology)')
     parser.add_argument('--connectivity', type=float, default=0.5,
                        help='Connection probability (arbitrary topology)')
-    parser.add_argument('--seed', type=int, default=42,
-                       help='Random seed')
+    parser.add_argument('--seed', type=int, default=None,
+                       help='Random seed (default: auto-generated from timestamp)')
     
     # Mesh/Torus options
     parser.add_argument('--width', type=int, default=4,
@@ -444,19 +485,30 @@ def main():
     parser.add_argument('--inter-links', type=int, default=6,
                        help='Inter-cluster links (pseudo)')
     
-    # Simulation options
+    # Traffic options
     parser.add_argument('--traffic', default='netrace',
+                       choices=['netrace', 'uniform', 'transpose', 'bit_complement', 'bit_reverse', 'shuffle', 'tornado'],
                        help='Traffic pattern')
+    parser.add_argument('--ntfile', default='../src/netrace/testraces/multiregion.tra.bz2',
+                       help='NetRace trace file')
+    
+    # Simulation options
+    parser.add_argument('--sim-type', choices=['batch', 'latency', 'throughput'], default=None,
+                       help='Simulation type (default: auto-select based on traffic)')
     parser.add_argument('--rate', type=float, default=0.01,
                        help='Injection rate')
     parser.add_argument('--num-vcs', type=int, default=1,
                        help='Number of virtual channels')
-    parser.add_argument('--vc-buf-size', type=int, default=3,
+    parser.add_argument('--vc-buf-size', type=int, default=8,
                        help='Virtual channel buffer size')
     parser.add_argument('--skip-sim', action='store_true',
                        help='Generate topology only, skip simulation')
     
     args = parser.parse_args()
+    
+    # Auto-generate seed from timestamp if not provided
+    if args.seed is None:
+        args.seed = int(datetime.now().timestamp() * 1000) % (2**31)
     
     # Create timestamped output directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -509,12 +561,21 @@ def main():
         
         output_file = run_dir / f"{topo_name}_{args.routing}_{args.traffic}_{args.rate}_out"
         
-        runner = BookSimRunner('./booksim')
+        runner = BookSimRunner('./booksim', 
+                               args.routing, 
+                               args.traffic,
+                               args.rate, 
+                               args.num_vcs, 
+                               args.vc_buf_size, 
+                               args.ntfile,
+                               args.sim_type)
+        
         metrics = runner.run(
             str(topology_file),
             str(output_file)
         )
-        
+
+        # Metrics collection
 
         REQUIRED_METRICS = [
             "latency", "min_latency", "max_latency", "hops",
@@ -524,7 +585,6 @@ def main():
         def missing_metrics(metrics, required=REQUIRED_METRICS):
             missing = [k for k in required if metrics.get(k) is None]
             return missing  # empty list if all present
-
 
         if not missing_metrics(metrics):
             print(f"\n{'='*70}")
@@ -538,7 +598,7 @@ def main():
             print(f"Saturated:     {'Yes' if metrics['saturated'] else 'No'}")
             
             # Save metrics JSON
-            metrics_file = run_dir / f"{topo_name}_{args.routing}_{args.traffic}_{args.rate}_metrics.json"
+            metrics_file = run_dir / f"{topo_name}_{args.num_vcs}_{args.rate}_{timestamp}_metrics.json"
             with open(metrics_file, 'w') as f:
                 json.dump(metrics, f, indent=2)
             

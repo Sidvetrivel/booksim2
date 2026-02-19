@@ -29,6 +29,7 @@
 #define _BATCHTRAFFICMANAGER_HPP_
 
 #include <iostream>
+#include <queue>
 
 #include "config_utils.hpp"
 #include "stats.hpp"
@@ -77,6 +78,9 @@ public:
     nt_header_t* _trace_header;
     string _trace_file;
     bool _use_netrace;
+    int _netrace_next_dest;
+    queue<nt_packet_t*> _netrace_packet_buffer; 
+    bool _netrace_eof;  
   #endif
 
   virtual void WriteStats( ostream & os = cout ) const;

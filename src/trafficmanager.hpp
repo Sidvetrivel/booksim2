@@ -276,6 +276,7 @@ protected:
   
   virtual int  _IssuePacket( int source, int cl );
   void _GeneratePacket( int source, int size, int cl, int time );
+  void _GeneratePacket( int source, int size, int cl, int time, int dest );  
 
   virtual void _ClearStats( );
 

@@ -171,13 +171,4 @@ public:
   virtual int dest(int source);
 };
 
-// Traffic pattern used for NetTrace-based simulations. This is a lightweight
-// placeholder so code in the base class can safely call reset() without
-// depending on the BatchTrafficManager-derived behavior.
-class NetTraceTrafficPattern : public TrafficPattern {
-public:
-  NetTraceTrafficPattern(int nodes);
-  virtual int dest(int source);
-};
-
 #endif
